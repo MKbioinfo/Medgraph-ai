@@ -1,0 +1,1086 @@
+// 1. Indexes
+CREATE INDEX concept_sctid IF NOT EXISTS FOR (c:Concept) ON (c.sctid);
+CREATE INDEX term_id IF NOT EXISTS FOR (t:Term) ON (t.termId);
+CREATE FULLTEXT INDEX term_search IF NOT EXISTS
+  FOR (t:Term) ON EACH [t.term];
+
+//Output:
+
+
+
+// 2. Concepts
+LOAD CSV WITH HEADERS FROM 'file:///nodes_concepts.csv' AS row
+CREATE (:Concept {sctid: row.sctid, conceptType: row.conceptType,
+                  definitionStatus: row.definitionStatus});
+
+//Output:
+Created 10,235 nodes, set 30,705 properties, added 10,235 labels
+
+
+// 3. Terms
+LOAD CSV WITH HEADERS FROM 'file:///nodes_terms.csv' AS row
+CREATE (:Term {termId: row.termId, term: row.term});
+
+//Output:
+Created 29,180 nodes, set 58,360 properties, added 29,180 labels
+
+
+// 4. HAS_TERM
+LOAD CSV WITH HEADERS FROM 'file:///rels_has_term.csv' AS row
+MATCH (c:Concept {sctid: row.startId})
+MATCH (t:Term {termId: row.endId})
+CREATE (c)-[:HAS_TERM {termType: row.termType}]->(t);
+
+//Output:
+Created 29,180 relationships, set 29,180 properties
+
+
+// 5. SNOMED rels (needs APOC)
+LOAD CSV WITH HEADERS FROM 'file:///rels_snomed.csv' AS row
+MATCH (source:Concept {sctid: row.startId})
+MATCH (target:Concept {sctid: row.endId})
+CALL apoc.create.relationship(source, row.relType, {}, target)
+YIELD rel RETURN count(rel);
+
+//Output:
+44165
+
+//Node counts by label
+MATCH (n)
+RETURN labels(n) AS nodeLabels, count(n) AS total
+ORDER BY total DESC;
+
+//Output:
+["Term"]= 29180
+
+["Concept"]= 10235
+
+//Concept split — Cardiology vs External
+MATCH (c:Concept)
+RETURN c.conceptType, count(c) AS total
+ORDER BY total DESC;
+
+//Output:
+"Cardiology"= 7200
+
+"External"= 3034
+
+"DiagnosticProcedure"=1 (i should standarise this one to just cardiology or external)
+
+
+//Relationship counts by type
+MATCH ()-[r]->()
+RETURN type(r) AS relType, count(r) AS total
+ORDER BY total DESC;
+
+//Output:
+╒═════════════════════════╤═════╕
+│relType                  │total│
+╞═════════════════════════╪═════╡
+│"HAS_TERM"               │29180│
+├─────────────────────────┼─────┤
+│"IS_A"                   │19020│
+├─────────────────────────┼─────┤
+│"FINDING_SITE"           │8266 │
+├─────────────────────────┼─────┤
+│"ASSOCIATED_MORPHOLOGY"  │6682 │
+├─────────────────────────┼─────┤
+│"OCCURRENCE"             │2209 │
+├─────────────────────────┼─────┤
+│"PATHOLOGICAL_PROCESS"   │2191 │
+├─────────────────────────┼─────┤
+│"INTERPRETS"             │1560 │
+├─────────────────────────┼─────┤
+│"DUE_TO"                 │1192 │
+├─────────────────────────┼─────┤
+│"HAS_INTERPRETATION"     │1152 │
+├─────────────────────────┼─────┤
+│"CLINICAL_COURSE"        │791  │
+├─────────────────────────┼─────┤
+│"AFTER"                  │373  │
+├─────────────────────────┼─────┤
+│"METHOD"                 │201  │
+├─────────────────────────┼─────┤
+│"PROCEDURE_SITE_DIRECT"  │193  │
+├─────────────────────────┼─────┤
+│"CAUSATIVE_AGENT"        │78   │
+├─────────────────────────┼─────┤
+│"ASSOCIATED_WITH"        │74   │
+├─────────────────────────┼─────┤
+│"PROCEDURE_SITE"         │30   │
+├─────────────────────────┼─────┤
+│"DURING"                 │28   │
+├─────────────────────────┼─────┤
+│"PROCEDURE_APPROACH"     │22   │
+├─────────────────────────┼─────┤
+│"COMPONENT"              │18   │
+├─────────────────────────┼─────┤
+│"USING_SUBSTANCE"        │18   │
+├─────────────────────────┼─────┤
+│"PROCEDURE_SITE_INDIRECT"│14   │
+├─────────────────────────┼─────┤
+│"TEMPORALLY_RELATED_TO"  │12   │
+├─────────────────────────┼─────┤
+│"HAS_FOCUS"              │10   │
+├─────────────────────────┼─────┤
+│"HAS_SPECIMEN"           │9    │
+├─────────────────────────┼─────┤
+│"HAS_INTENT"             │7    │
+├─────────────────────────┼─────┤
+│"DIRECT_MORPHOLOGY"      │7    │
+├─────────────────────────┼─────┤
+│"FINDING_INFORMER"       │7    │
+├─────────────────────────┼─────┤
+│"INHERENT_IN"            │1    │
+└─────────────────────────┴─────┘
+
+
+//Terms per concept (average)
+MATCH (c:Concept)
+OPTIONAL MATCH (c)-[:HAS_TERM]->(t:Term)
+WITH c, count(t) AS termCount
+RETURN min(termCount) AS minTerms,
+       max(termCount) AS maxTerms,
+       round(avg(termCount), 2) AS avgTerms,
+       count(CASE WHEN termCount = 0 THEN 1 END) AS conceptsWithNoTerm;
+
+//Output:
+╒════════╤════════╤════════╤══════════════════╕
+│minTerms│maxTerms│avgTerms│conceptsWithNoTerm│
+╞════════╪════════╪════════╪══════════════════╡
+│1       │21      │2.85    │0                 │
+└────────┴────────┴────────┴──────────────────┘
+
+
+
+
+//Relationships
+
+//SNOMED relationship type distribution
+MATCH ()-[r]->()
+WHERE type(r) <> 'HAS_TERM'
+RETURN type(r) AS snomedType, count(r) AS total,
+       round(100.0 * count(r) / 40650, 1) AS pct
+ORDER BY total DESC;
+
+//Output:
+╒═════════════════════════╤═════╤════╕
+│snomedType               │total│pct │
+╞═════════════════════════╪═════╪════╡
+│"IS_A"                   │19020│46.8│
+├─────────────────────────┼─────┼────┤
+│"FINDING_SITE"           │8266 │20.3│
+├─────────────────────────┼─────┼────┤
+│"ASSOCIATED_MORPHOLOGY"  │6682 │16.4│
+├─────────────────────────┼─────┼────┤
+│"OCCURRENCE"             │2209 │5.4 │
+├─────────────────────────┼─────┼────┤
+│"PATHOLOGICAL_PROCESS"   │2191 │5.4 │
+├─────────────────────────┼─────┼────┤
+│"INTERPRETS"             │1560 │3.8 │
+├─────────────────────────┼─────┼────┤
+│"DUE_TO"                 │1192 │2.9 │
+├─────────────────────────┼─────┼────┤
+│"HAS_INTERPRETATION"     │1152 │2.8 │
+├─────────────────────────┼─────┼────┤
+│"CLINICAL_COURSE"        │791  │1.9 │
+├─────────────────────────┼─────┼────┤
+│"AFTER"                  │373  │0.9 │
+├─────────────────────────┼─────┼────┤
+│"METHOD"                 │201  │0.5 │
+├─────────────────────────┼─────┼────┤
+│"PROCEDURE_SITE_DIRECT"  │193  │0.5 │
+├─────────────────────────┼─────┼────┤
+│"CAUSATIVE_AGENT"        │78   │0.2 │
+├─────────────────────────┼─────┼────┤
+│"ASSOCIATED_WITH"        │74   │0.2 │
+├─────────────────────────┼─────┼────┤
+│"PROCEDURE_SITE"         │30   │0.1 │
+├─────────────────────────┼─────┼────┤
+│"DURING"                 │28   │0.1 │
+├─────────────────────────┼─────┼────┤
+│"PROCEDURE_APPROACH"     │22   │0.1 │
+├─────────────────────────┼─────┼────┤
+│"COMPONENT"              │18   │0.0 │
+├─────────────────────────┼─────┼────┤
+│"USING_SUBSTANCE"        │18   │0.0 │
+├─────────────────────────┼─────┼────┤
+│"PROCEDURE_SITE_INDIRECT"│14   │0.0 │
+├─────────────────────────┼─────┼────┤
+│"TEMPORALLY_RELATED_TO"  │12   │0.0 │
+├─────────────────────────┼─────┼────┤
+│"HAS_FOCUS"              │10   │0.0 │
+├─────────────────────────┼─────┼────┤
+│"HAS_SPECIMEN"           │9    │0.0 │
+├─────────────────────────┼─────┼────┤
+│"HAS_INTENT"             │7    │0.0 │
+├─────────────────────────┼─────┼────┤
+│"DIRECT_MORPHOLOGY"      │7    │0.0 │
+├─────────────────────────┼─────┼────┤
+│"FINDING_INFORMER"       │7    │0.0 │
+├─────────────────────────┼─────┼────┤
+│"INHERENT_IN"            │1    │0.0 │
+└─────────────────────────┴─────┴────┘
+
+
+
+//Self-loops (concept pointing to itself)
+MATCH (c:Concept)-[r]->(c)
+WHERE type(r) <> 'HAS_TERM'
+RETURN type(r) AS relType, c.sctid, count(*) AS loops;
+
+
+//Output:
+0
+
+
+//Duplicate SNOMED relationships
+MATCH (a:Concept)-[r]->(b:Concept)
+WHERE type(r) <> 'HAS_TERM'
+WITH a.sctid AS src, type(r) AS rel, b.sctid AS tgt, count(*) AS n
+WHERE n > 1
+RETURN src, rel, tgt, n
+ORDER BY n DESC
+LIMIT 20;
+
+//Output:
+0
+
+
+//Concepts with no terms
+MATCH (c:Concept)
+WHERE NOT (c)-[:HAS_TERM]->()
+RETURN c.sctid, c.conceptType
+LIMIT 20;
+
+//Output:
+0
+
+
+//Terms with no parent concept
+MATCH (t:Term)
+WHERE NOT ()-[:HAS_TERM]->(t)
+RETURN t.termId, t.term
+LIMIT 20;
+
+//Output:
+0
+
+
+
+//Cardiology concepts with no IS_A relationship
+MATCH (c:Concept {conceptType: 'Cardiology'})
+WHERE c.sctid <> '49601007'
+  AND NOT (c)-[:IS_A]->()
+RETURN c.sctid, count(*) AS isolatedConcepts;
+
+//Output:
+0
+
+
+
+//Concepts with no SNOMED relationship (besides HAS_TERM)
+MATCH (c:Concept {conceptType: 'Cardiology'})
+WHERE NOT (c)-[:IS_A]->()
+  AND NOT (c)<-[:IS_A]-()
+  AND NOT (c)-[:FINDING_SITE]->()
+RETURN count(c) AS isolatedLeaves;
+
+//Output:
+0
+
+
+
+//Core cardiology concepts present
+MATCH (c:Concept)
+WHERE c.sctid IN [
+  '49601007',  // Disorder of cardiovascular system (root)
+  '84114007',  // Heart failure
+  '22298006',  // Myocardial infarction
+  '49436004',  // Atrial fibrillation
+  '38341003',  // Hypertensive disorder
+  '73211009',  // Diabetes mellitus
+  '57054005',  // Acute MI
+  '29857009'   // Chest pain (finding)
+]
+MATCH (c)-[r:HAS_TERM]->(t:Term)
+WHERE r.termType = 'FSN'  // FSN typeId
+RETURN c.sctid, t.term
+ORDER BY c.sctid;
+
+//Output:
+╒══════════╤═════════════════════════════════════════════════════╕
+│c.sctid   │t.term                                               │
+╞══════════╪═════════════════════════════════════════════════════╡
+│"22298006"│"Myocardial infarction (disorder)"                   │
+├──────────┼─────────────────────────────────────────────────────┤
+│"29857009"│"Chest pain (finding)"                               │
+├──────────┼─────────────────────────────────────────────────────┤
+│"38341003"│"Hypertensive disorder, systemic arterial (disorder)"│
+├──────────┼─────────────────────────────────────────────────────┤
+│"49436004"│"Atrial fibrillation (disorder)"                     │
+├──────────┼─────────────────────────────────────────────────────┤
+│"49601007"│"Disorder of cardiovascular system (disorder)"       │
+├──────────┼─────────────────────────────────────────────────────┤
+│"57054005"│"Acute myocardial infarction (disorder)"             │
+├──────────┼─────────────────────────────────────────────────────┤
+│"73211009"│"Diabetes mellitus (disorder)"                       │
+├──────────┼─────────────────────────────────────────────────────┤
+│"84114007"│"Heart failure (disorder)"                           │
+└──────────┴─────────────────────────────────────────────────────┘
+
+
+
+//Synonyms Heart failure
+MATCH (c:Concept {sctid: '84114007'})-[r:HAS_TERM]->(t:Term)
+RETURN c.sctid,
+       CASE r.termType
+         WHEN 'FSN' THEN 'FSN'
+         WHEN 'Synonym' THEN 'Synonym'
+         ELSE r.termType
+       END AS termType,
+       t.term
+ORDER BY termType;
+
+
+
+//Output:
+╒══════════╤═════════╤══════════════════════════╕
+│c.sctid   │termType │t.term                    │
+╞══════════╪═════════╪══════════════════════════╡
+│"84114007"│"FSN"    │"Heart failure (disorder)"│
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"Heart failure"           │
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"Myocardial failure"      │
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"Weak heart"              │
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"Cardiac failure"         │
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"HF - Heart failure"      │
+├──────────┼─────────┼──────────────────────────┤
+│"84114007"│"Synonym"│"Cardiac insufficiency"   │
+└──────────┴─────────┴──────────────────────────┘
+
+
+
+//Top concepts by synonym count
+MATCH (c:Concept)-[:HAS_TERM]->(t:Term)
+WITH c, count(t) AS termCount
+ORDER BY termCount DESC
+LIMIT 15
+MATCH (c)-[r:HAS_TERM]->(fsn:Term)
+WHERE r.termType = 'FSN'
+RETURN c.sctid, fsn.term AS fsn, termCount
+ORDER BY termCount DESC;
+
+//Output:
+╒════════════╤════════════════════════════════════════════════════════════════════════════════════════════════════╤═════════╕
+│c.sctid     │fsn                                                                                                 │termCount│
+╞════════════╪════════════════════════════════════════════════════════════════════════════════════════════════════╪═════════╡
+│"359789008" │"Takayasu's disease (disorder)"                                                                     │21       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"16652001"  │"Fabry's disease (disorder)"                                                                        │18       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"13645005"  │"Chronic obstructive pulmonary disease (disorder)"                                                  │15       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"251175005" │"Ventricular premature complex (disorder)"                                                          │14       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"25362006"  │"Phytanic acid storage disease (disorder)"                                                          │14       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"31848007"  │"Calcinosis, Raynaud's phenomenon, esophageal dysmotility, sclerodactyly, and telangiectasia syndrom│14       │
+│            │e (disorder)"                                                                                       │         │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"38341003"  │"Hypertensive disorder, systemic arterial (disorder)"                                               │14       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"191306005" │"Immunoglobulin A vasculitis (disorder)"                                                            │14       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"1222539006"│"Three consecutive ventricular premature complexes (disorder)"                                      │13       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"398254007" │"Pre-eclampsia (disorder)"                                                                          │13       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"12579009"  │"Familial Mediterranean fever (disorder)"                                                           │13       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"251176006" │"Multiple premature ventricular complexes (disorder)"                                               │13       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"816181009" │"Edema of bilateral lower limbs (finding)"                                                          │12       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"398114001" │"Ehlers-Danlos syndrome (disorder)"                                                                 │12       │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────┤
+│"51071000"  │"Microangiopathic hemolytic anemia (disorder)"                                                      │11       │
+└────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┴─────────┘
+
+
+
+//IS-A path from MI to cardio root
+MATCH p = (c:Concept {sctid: '22298006'})
+           -[:IS_A*1..8]->
+           (root:Concept {sctid: '49601007'})
+RETURN [n IN nodes(p) | n.sctid] AS sctidPath,
+       length(p) AS depth
+ORDER BY depth ASC
+LIMIT 3;
+
+//Output:
+╒══════════════════════════════════════════════════════════════╤═════╕
+│sctidPath                                                     │depth│
+╞══════════════════════════════════════════════════════════════╪═════╡
+│["22298006", "251061000", "86175003", "282728007", "49601007"]│4    │
+├──────────────────────────────────────────────────────────────┼─────┤
+│["22298006", "251061000", "86175003", "56265001", "49601007"] │4    │
+├──────────────────────────────────────────────────────────────┼─────┤
+│["22298006", "414545008", "86175003", "56265001", "49601007"] │4    │
+└──────────────────────────────────────────────────────────────┴─────┘
+
+
+
+
+//Direct children of the cardio root
+MATCH (child:Concept)-[:IS_A]->(root:Concept {sctid: '49601007'})
+MATCH (child)-[r:HAS_TERM]->(fsn:Term)
+WHERE r.termType = 'FSN'
+RETURN child.sctid, fsn.term
+ORDER BY fsn.term
+LIMIT 20;
+
+//Output:
+╒═══════════╤════════════════════════════════════════════════════════════════════════════════════════════════════╕
+│child.sctid│fsn.term                                                                                            │
+╞═══════════╪════════════════════════════════════════════════════════════════════════════════════════════════════╡
+│"880039000"│"Acquired abnormality of neoaortic valve following biventricular repair of common arterial trunk (di│
+│           │sorder)"                                                                                            │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"128487001"│"Acute disease of cardiovascular system (disorder)"                                                 │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"432119003"│"Aneurysm (disorder)"                                                                               │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"234224005"│"Cardiac pacemaker syndrome (disorder)"                                                             │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"461088006"│"Cardiovascular abnormality due to anomalous origin of coronary artery from pulmonary artery (disord│
+│           │er)"                                                                                                │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"461338005"│"Cardiovascular abnormality due to anomalous origin of coronary artery orifice (disorder)"          │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"461100000"│"Cardiovascular abnormality due to anomalous origin of ductus arteriosus (disorder)"                │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"461098000"│"Cardiovascular abnormality due to bilateral ductus arteriosus (disorder)"                          │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"472811009"│"Cardiovascular abnormality due to infective myocarditis (disorder)"                                │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"461099008"│"Cardiovascular abnormality due to patent ductus arteriosus (disorder)"                             │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"472808008"│"Cardiovascular fistula due to endocarditis (disorder)"                                             │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"282728007"│"Cardiovascular injury (disorder)"                                                                  │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"363004000"│"Cardiovascular sequelae of disorders (disorder)"                                                   │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"473459007"│"Cardiovascular system complication of procedure (disorder)"                                        │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"363005004"│"Cardiovascular system hereditary disorder (disorder)"                                              │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"128292002"│"Chronic disease of cardiovascular system (disorder)"                                               │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"448321007"│"Complete obstruction of cardiac conduit (disorder)"                                                │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"762228008"│"Congenital cardiovascular disorder (disorder)"                                                     │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"105980002"│"Disease affecting entire cardiovascular system (disorder)"                                         │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"724497009"│"Disease of circulatory system complicating pregnancy childbirth and puerperium (disorder)"         │
+└───────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+//Max IS-A depth in the graph
+MATCH p = (leaf:Concept)-[:IS_A*]->(root:Concept {sctid: '49601007'})
+WHERE NOT (leaf)<-[:IS_A]-()
+RETURN max(length(p)) AS maxDepth,
+       min(length(p)) AS minDepth,
+       round(avg(length(p)), 1) AS avgDepth;
+
+//Output:
+╒════════╤════════╤════════╕
+│maxDepth│minDepth│avgDepth│
+╞════════╪════════╪════════╡
+│13      │1       │6.7     │
+└────────┴────────┴────────┘
+
+
+
+//IS-A cycles detection
+MATCH (c:Concept)-[:IS_A*2..]->(c)
+RETURN c.sctid, count(*) AS cycleCount
+LIMIT 10;
+
+//Output:
+0
+
+
+
+
+//Known dermatology contaminants
+MATCH (c:Concept)
+WHERE c.sctid IN [
+  '56975005',  // Strawberry nevus of skin
+  '83343001',  // Capillary hemangioma
+  '93471006',  // Hemangioma of skin
+  '1157107003' // COVID vaccine procedure
+]
+MATCH (c)-[r:HAS_TERM]->(t:Term)
+WHERE r.termType = 'FSN'
+RETURN c.sctid, t.term, c.conceptType;
+
+//Output:
+0
+
+
+
+
+
+//Non-cardiac External concepts — domain scan
+MATCH (c:Concept {conceptType: 'External'})-[r:HAS_TERM]->(t:Term)
+WHERE r.termType = 'FSN'
+  AND (t.term CONTAINS 'organism'
+    OR t.term CONTAINS 'bacteria'
+    OR t.term CONTAINS 'virus'
+    OR t.term CONTAINS 'geographic')
+RETURN c.sctid, t.term
+LIMIT 20;
+
+//Output:
+╒════════════╤════════════════════════════════════════════════════════════════════════════════════════════════════╕
+│c.sctid     │t.term                                                                                              │
+╞════════════╪════════════════════════════════════════════════════════════════════════════════════════════════════╡
+│"25225006"  │"Disease caused by Adenovirus (disorder)"                                                           │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"53648006"  │"Disease caused by Enterovirus (disorder)"                                                          │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"86406008"  │"Human immunodeficiency virus infection (disorder)"                                                 │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"111880001" │"Acute human immunodeficiency virus infection (disorder)"                                           │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"186658007" │"Coxsackie virus disease (disorder)"                                                                │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"240530001" │"Epstein-Barr virus disease (disorder)"                                                             │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"271532008" │"Echovirus disease (disorder)"                                                                      │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"840539006" │"Disease caused by severe acute respiratory syndrome coronavirus 2 (disorder)"                      │
+├────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│"1157106007"│"Adverse reaction to component of vaccine product containing only recombinant non-replicating viral │
+│            │vector encoding severe acute respiratory syndrome coronavirus 2 spike protein (disorder)"           │
+└────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+//External concept FSN breakdown
+MATCH (c:Concept {conceptType: 'External'})-[r:HAS_TERM]->(t:Term)
+WHERE r.termType = 'FSN'
+WITH CASE
+  WHEN t.term ENDS WITH '(body structure)' THEN 'Body structure'
+  WHEN t.term ENDS WITH '(morphologic abnormality)' THEN 'Morphology'
+  WHEN t.term ENDS WITH '(qualifier value)' THEN 'Qualifier'
+  WHEN t.term ENDS WITH '(observable entity)' THEN 'Observable'
+  WHEN t.term ENDS WITH '(procedure)' THEN 'Procedure'
+  WHEN t.term ENDS WITH '(disorder)' THEN 'Disorder ⚠️'
+  ELSE 'Other'
+END AS semanticTag, count(*) AS n
+RETURN semanticTag, n ORDER BY n DESC;
+
+//Output:
+╒════════════════╤════╕
+│semanticTag     │n   │
+╞════════════════╪════╡
+│"Disorder ⚠️"   │1260│
+├────────────────┼────┤
+│"Body structure"│886 │
+├────────────────┼────┤
+│"Morphology"    │335 │
+├────────────────┼────┤
+│"Other"         │275 │
+├────────────────┼────┤
+│"Procedure"     │132 │
+├────────────────┼────┤
+│"Qualifier"     │77  │
+├────────────────┼────┤
+│"Observable"    │69  │
+└────────────────┴────┘
+
+
+
+
+
+//Confirm important borderline concepts are present
+MATCH (c:Concept)
+WHERE c.sctid IN [
+  '13645005',  // COPD → cor pulmonale
+  '16652001',  // Fabry disease → hypertrophic cardiomyopathy
+  '398254007', // Pre-eclampsia → cardiovascular risk
+  '31848007'   // CREST syndrome → pulmonary arterial hypertension
+]
+MATCH (c)-[r:HAS_TERM]->(t:Term)
+WHERE r.termType = 'FSN'
+RETURN c.sctid, t.term, c.conceptType;
+
+//Output:
+╒═══════════╤════════════════════════════════════════════════════════════════════════════════════════════════════╤═════════════╕
+│c.sctid    │t.term                                                                                              │c.conceptType│
+╞═══════════╪════════════════════════════════════════════════════════════════════════════════════════════════════╪═════════════╡
+│"13645005" │"Chronic obstructive pulmonary disease (disorder)"                                                  │"External"   │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────┤
+│"16652001" │"Fabry's disease (disorder)"                                                                        │"Cardiology" │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────┤
+│"398254007"│"Pre-eclampsia (disorder)"                                                                          │"External"   │
+├───────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼─────────────┤
+│"31848007" │"Calcinosis, Raynaud's phenomenon, esophageal dysmotility, sclerodactyly, and telangiectasia syndrom│"Cardiology" │
+│           │e (disorder)"                                                                                       │             │
+└───────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┴─────────────┘
+
+
+
+
+//Full-text index — "heart failure"
+CALL db.index.fulltext.queryNodes("term_search", "heart failure")
+YIELD node, score
+MATCH (c:Concept)-[:HAS_TERM]->(node)
+RETURN node.term, c.sctid, score
+ORDER BY score DESC
+LIMIT 5;
+
+//Output:
+╒═══════════════════════════════════════════════════╤════════════════╤══════════════════╕
+│node.term                                          │c.sctid         │score             │
+╞═══════════════════════════════════════════════════╪════════════════╪══════════════════╡
+│"Heart failure"                                    │"84114007"      │4.764837741851807 │
+├───────────────────────────────────────────────────┼────────────────┼──────────────────┤
+│"Congestive heart failure with right heart failure"│"23341000119109"│4.478285789489746 │
+├───────────────────────────────────────────────────┼────────────────┼──────────────────┤
+│"Hypertensive heart failure"                       │"46113002"      │4.3173956871032715│
+├───────────────────────────────────────────────────┼────────────────┼──────────────────┤
+│"Left heart failure"                               │"85232009"      │4.3173956871032715│
+├───────────────────────────────────────────────────┼────────────────┼──────────────────┤
+│"Postoperative heart failure"                      │"1375957009"    │4.3173956871032715│
+└───────────────────────────────────────────────────┴────────────────┴──────────────────┘
+
+
+
+
+
+//Full-text index — synonym mapping
+CALL db.index.fulltext.queryNodes("term_search", "heart attack")
+YIELD node, score
+MATCH (c:Concept)-[:HAS_TERM]->(node)
+RETURN node.term, c.sctid, score
+ORDER BY score DESC
+LIMIT 5;
+
+//Output:
+╒════════════════════════════╤═══════════╤══════════════════╕
+│node.term                   │c.sctid    │score             │
+╞════════════════════════════╪═══════════╪══════════════════╡
+│"Heart attack"              │"22298006" │6.731276988983154 │
+├────────────────────────────┼───────────┼──────────────────┤
+│"Vasovagal attack"          │"398665005"│4.682318687438965 │
+├────────────────────────────┼───────────┼──────────────────┤
+│"Syncope attack"            │"271594007"│4.682318687438965 │
+├────────────────────────────┼───────────┼──────────────────┤
+│"Transient ischaemic attack"│"266257000"│4.2426252365112305│
+├────────────────────────────┼───────────┼──────────────────┤
+│"Transient ischemic attack" │"266257000"│4.2426252365112305│
+└────────────────────────────┴───────────┴──────────────────┘
+
+
+
+//Full-text index — fuzzy/partial match
+CALL db.index.fulltext.queryNodes("term_search", "atrial fibr*")
+YIELD node, score
+MATCH (c:Concept)-[:HAS_TERM]->(node)
+RETURN node.term, c.sctid, score
+ORDER BY score DESC
+LIMIT 5;
+
+//Output:
+╒══════════════════════════════════╤════════════════════╤══════════════════╕
+│node.term                         │c.sctid             │score             │
+╞══════════════════════════════════╪════════════════════╪══════════════════╡
+│"Atrial fibrillation"             │"49436004"          │3.6197028160095215│
+├──────────────────────────────────┼────────────────────┼──────────────────┤
+│"ECG: atrial fibrillation"        │"164889003"         │3.37369966506958  │
+├──────────────────────────────────┼────────────────────┼──────────────────┤
+│"Intermittent atrial fibrillation"│"282825002"         │3.37369966506958  │
+├──────────────────────────────────┼────────────────────┼──────────────────┤
+│"AF - Atrial fibrillation"        │"49436004"          │3.37369966506958  │
+├──────────────────────────────────┼────────────────────┼──────────────────┤
+│"Valvular atrial fibrillation"    │"313377641000119105"│3.37369966506958  │
+└──────────────────────────────────┴────────────────────┴──────────────────┘
+
+//
+
+
+//
+// Find disorders whose FSN contains the symptom term
+CALL db.index.fulltext.queryNodes("term_search", "chest pain")
+YIELD node, score
+MATCH (c:Concept)-[:HAS_TERM]->(node)
+MATCH (c)-[:HAS_TERM]->(fsn)
+WHERE fsn.term CONTAINS "(disorder)"
+  AND c.conceptType = "Cardiology"
+RETURN DISTINCT c.sctid, fsn.term AS disorder_name, score
+ORDER BY score DESC
+LIMIT 15;
+
+//output :
+╒═══════════════════╤══════════════════════════════════════════════════════╤══════════════════╕
+│c.sctid            │disorder_name                                         │score             │
+╞═══════════════════╪══════════════════════════════════════════════════════╪══════════════════╡
+│"38751000087108"   │"Chronic primary chest pain syndrome (disorder)"      │5.129866600036621 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"59021001"         │"Angina decubitus (disorder)"                         │4.724313735961914 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"38751000087108"   │"Chronic primary chest pain syndrome (disorder)"      │4.724313735961914 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"38751000087108"   │"Chronic primary chest pain syndrome (disorder)"      │4.378186225891113 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"16567006"         │"Mesocardia (disorder)"                               │2.849601984024048 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"27637000"         │"Dextrocardia (disorder)"                             │2.849601984024048 │
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"279036000"        │"Myofascial pain syndrome of thorax (disorder)"       │2.2802646160125732│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"237477007"        │"Pain associated with breast implant (disorder)"      │2.2802646160125732│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"38811000087102"   │"Chronic primary thoracic pain (disorder)"            │2.2802646160125732│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"237477007"        │"Pain associated with breast implant (disorder)"      │2.0999932289123535│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"279036000"        │"Myofascial pain syndrome of thorax (disorder)"       │2.0999932289123535│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"38811000087102"   │"Chronic primary thoracic pain (disorder)"            │2.0999932289123535│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"713412006"        │"Ischemic foot with rest pain (disorder)"             │2.0999932289123535│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"713412006"        │"Ischemic foot with rest pain (disorder)"             │1.9461371898651123│
+├───────────────────┼──────────────────────────────────────────────────────┼──────────────────┤
+│"12198401000119108"│"Pain associated with right breast implant (disorder)"│1.9461371898651123│
+└───────────────────┴──────────────────────────────────────────────────────┴──────────────────┘
+
+// Get distinct children of MI, one row per child concept
+MATCH (child:Concept)-[:IS_A]->(parent:Concept {sctid: '22298006'})
+MATCH (child)-[:HAS_TERM]->(ct)
+WHERE ct.term CONTAINS "(disorder)"
+RETURN DISTINCT child.sctid, ct.term AS child_name
+ORDER BY child_name;
+
+//output : 
+╒════════════════════╤══════════════════════════════════════════════════════════════════════════════════╕
+│child.sctid         │child_name                                                                        │
+╞════════════════════╪══════════════════════════════════════════════════════════════════════════════════╡
+│"57054005"          │"Acute myocardial infarction (disorder)"                                          │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"394710008"         │"First myocardial infarction (disorder)"                                          │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"42531007"          │"Microinfarct of heart (disorder)"                                                │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"428196007"         │"Mixed myocardial ischemia and infarction (disorder)"                             │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"726499301000119105"│"Myocardial infarction due to atherothrombotic coronary artery disease (disorder)"│
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"16837681000119104" │"Myocardial infarction due to demand ischemia (disorder)"                         │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"418044006"         │"Myocardial infarction in recovery phase (disorder)"                              │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"879955009"         │"Myocardial infarction with non-obstructive coronary artery (disorder)"           │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"314207007"         │"Non-Q wave myocardial infarction (disorder)"                                     │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"1755008"           │"Old myocardial infarction (disorder)"                                            │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"129574000"         │"Postoperative myocardial infarction (disorder)"                                  │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"233843008"         │"Silent myocardial infarction (disorder)"                                         │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"194856005"         │"Subsequent myocardial infarction (disorder)"                                     │
+├────────────────────┼──────────────────────────────────────────────────────────────────────────────────┤
+│"194802003"         │"True posterior myocardial infarction (disorder)"                                 │
+└────────────────────┴──────────────────────────────────────────────────────────────────────────────────┘
+
+// Strategy A: IS_A upward from chest pain toward cardiac disorders
+MATCH (symptom:Concept {sctid: '29857009'})-[:IS_A*1..3]->(parent:Concept)
+MATCH (disorder:Concept)-[:IS_A]->(parent)
+MATCH (disorder)-[:HAS_TERM]->(t)
+WHERE t.term CONTAINS "(disorder)"
+  AND disorder.sctid <> '29857009'
+  AND disorder.conceptType = "Cardiology"
+RETURN DISTINCT disorder.sctid, t.term AS disorder_name
+LIMIT 15;
+
+//output :
+No changes, no records
+
+
+MATCH (c:Concept {sctid: '84114007'})-[r]-(neighbor:Concept)
+MATCH (neighbor)-[:HAS_TERM]->(t)
+WHERE t.term CONTAINS "(disorder)" 
+   OR t.term CONTAINS "(structure)"
+   OR t.term CONTAINS "(observable"
+WITH DISTINCT type(r) AS relationship, neighbor.sctid AS nsctid, 
+     min(t.term) AS neighbor_name
+RETURN relationship, nsctid, neighbor_name
+ORDER BY relationship, neighbor_name
+LIMIT 20;
+
+//output : 
+╒════════════╤═════════════════╤═══════════════════════════════════════════════════════════════════════════╕
+│relationship│nsctid           │neighbor_name                                                              │
+╞════════════╪═════════════════╪═══════════════════════════════════════════════════════════════════════════╡
+│"DUE_TO"    │"722095005"      │"Acute cardiorenal syndrome (disorder)"                                    │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"INTERPRETS"│"86185002"       │"Cardiac function (observable entity)"                                     │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"56675007"       │"Acute heart failure (disorder)"                                           │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"89819002"       │"Cardiac insufficiency during AND/OR resulting from a procedure (disorder)"│
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"410431009"      │"Cardiorespiratory failure (disorder)"                                     │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"48447003"       │"Chronic heart failure (disorder)"                                         │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"195112003"      │"Compensated cardiac failure (disorder)"                                   │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"206586007"      │"Congenital cardiac failure (disorder)"                                    │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"42343007"       │"Congestive heart failure (disorder)"                                      │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"195111005"      │"Decompensated cardiac failure (disorder)"                                 │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"418304008"      │"Diastolic heart failure (disorder)"                                       │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"105981003"      │"Disorder of cardiac function (disorder)"                                  │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"471880001"      │"Heart failure due to end stage congenital heart disease (disorder)"       │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"898208007"      │"Heart failure due to thyrotoxicosis (disorder)"                           │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"113901000052102"│"Heart failure following administration of antineoplastic agent (disorder)"│
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"1375957009"     │"Heart failure following surgical procedure (disorder)"                    │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"1381570009"     │"Heart failure with improved ejection fraction (disorder)"                 │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"788950000"      │"Heart failure with mid range ejection fraction (disorder)"                │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"446221000"      │"Heart failure with normal ejection fraction (disorder)"                   │
+├────────────┼─────────────────┼───────────────────────────────────────────────────────────────────────────┤
+│"IS_A"      │"703272007"      │"Heart failure with reduced ejection fraction (disorder)"                  │
+└────────────┴─────────────────┴───────────────────────────────────────────────────────────────────────────┘
+
+//visualisation0
+MATCH (n)
+OPTIONAL MATCH (n)-[r]->(m)
+RETURN n, r, m
+
+//synonyms of Echocardiography
+MATCH (c:Concept {sctid: '40701008'})-[r:HAS_TERM]->(t:Term)
+RETURN t.term
+
+//output:
+╒══════════════════════════════╕
+│t.term                        │
+╞══════════════════════════════╡
+│"Echocardiography"            │
+├──────────────────────────────┤
+│"Ultrasonography of heart"    │
+├──────────────────────────────┤
+│"Echocardiographic procedure" │
+├──────────────────────────────┤
+│"Echocardiography (procedure)"│
+├──────────────────────────────┤
+│"US scan of heart"            │
+├──────────────────────────────┤
+│"Cardiac echo"                │
+├──────────────────────────────┤
+│"Echocardiogram"              │
+├──────────────────────────────┤
+│"Cardiac US scan"             │
+├──────────────────────────────┤
+│"US heart scan"               │
+├──────────────────────────────┤
+│"Ultrasound of heart"         │
+└──────────────────────────────┘
+
+
+MATCH (c:Concept)-[:HAS_TERM]->(t:Term)
+WHERE c.source = 'SNOMED_CT_manual'
+   OR c.source = 'ESC_ACS_2023_TableS4'
+RETURN c.sctid, c.fsn, t.term, t.termType
+ORDER BY c.sctid;
+// Expected: 10 rows total
+
+//output: 
+╒═════════════════════════╤════════════════════════════════════════════════╤════════════════════════════════════════════════╤══════════╕
+│c.sctid                  │c.fsn                                           │t.term                                          │t.termType│
+╞═════════════════════════╪════════════════════════════════════════════════╪════════════════════════════════════════════════╪══════════╡
+│"230690007"              │"Cerebrovascular accident (disorder)"           │"Cerebrovascular accident (disorder)"           │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"36118008"               │"Pneumothorax (disorder)"                       │"Pneumothorax (disorder)"                       │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"386952008"              │"Clopidogrel (substance)"                       │"Clopidogrel (substance)"                       │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"387458008"              │"Aspirin (substance)"                           │"Aspirin (substance)"                           │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"415070008"              │"Percutaneous coronary intervention (procedure)"│"Percutaneous coronary intervention (procedure)"│"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"443129001"              │"Prasugrel (substance)"                         │"Prasugrel (substance)"                         │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"698805004"              │"Ticagrelor (substance)"                        │"Ticagrelor (substance)"                        │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"LOCAL_NSTEMI_OBSERVE_01"│"NSTEMI observe zone - repeat troponin at 3h"   │"NSTEMI observe zone - repeat troponin at 3h"   │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"LOCAL_NSTEMI_RULEIN_01" │"NSTEMI confirmed by ESC 0h/1h algorithm"       │"NSTEMI confirmed by ESC 0h/1h algorithm"       │"FSN"     │
+├─────────────────────────┼────────────────────────────────────────────────┼────────────────────────────────────────────────┼──────────┤
+│"LOCAL_NSTEMI_RULEOUT_01"│"NSTEMI ruled out by ESC 0h/1h algorithm"       │"NSTEMI ruled out by ESC 0h/1h algorithm"       │"FSN"     │
+└─────────────────────────┴────────────────────────────────────────────────┴────────────────────────────────────────────────┴──────────┘
+
+//table 4 enrichment
+// Immediate invasive strategy
+MATCH (n:Concept), (e:Concept)
+WHERE n.sctid = 'NSTEMI_SCTID' 
+AND e.sctid = 'CORONARY_ANGIOGRAPHY_SCTID'
+CREATE (n)-[:REQUIRES_EXAM {
+  urgency: 'immediate',
+  condition: 'very_high_risk_criteria',
+  evidence_class: 'I',
+  evidence_level: 'C',
+  source: 'ESC_ACS_2023_Table4'
+}]->(e);
+
+// Early invasive strategy within 24h
+CREATE (n)-[:REQUIRES_EXAM {
+  urgency: 'within_24h',
+  condition: 'high_risk_criteria',
+  grace_threshold: 140,
+  evidence_class: 'IIa',
+  evidence_level: 'A',
+  source: 'ESC_ACS_2023_Table4'
+}]->(e); 
+
+//verification 
+CALL db.index.fulltext.queryNodes("term_search", "coronary angiography")
+YIELD node, score
+RETURN node.term, score ORDER BY score DESC LIMIT 5;
+
+CALL db.index.fulltext.queryNodes("term_search", "NSTEMI")
+YIELD node, score
+RETURN node.term, score ORDER BY score DESC LIMIT 5;
+
+//test 
+// Test 1 — Chest pain has exactly 5 differentials
+MATCH (c:Concept {sctid:'29857009'})-[:HAS_DIFFERENTIAL]->(d:Concept)
+RETURN count(d) AS total;
+// Output: 5
+
+// Test 2 — ACS requires immediate ECG within 10 min
+MATCH (acs:Concept {sctid:'394659003'})-[r:REQUIRES_EXAM]->(e:Concept {sctid:'29303009'})
+WHERE r.urgency = 'immediate' AND r.time_target_minutes = 10
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 3 — ACS requires immediate troponin within 60 min
+MATCH (acs:Concept {sctid:'394659003'})-[r:REQUIRES_EXAM]->(t:Concept {sctid:'105000003'})
+WHERE r.urgency = 'immediate' AND r.time_target_minutes = 60
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 4 — NSTEMI requires angiography within 24h when GRACE above 140
+MATCH (n:Concept {sctid:'401314000'})-[r:REQUIRES_EXAM]->(a:Concept {sctid:'33367005'})
+WHERE r.urgency = 'within_24h' AND r.grace_threshold = 140
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 5 — NSTEMI requires immediate angiography when very high risk
+MATCH (n:Concept {sctid:'401314000'})-[r:REQUIRES_EXAM]->(a:Concept {sctid:'33367005'})
+WHERE r.urgency = 'immediate' AND r.condition = 'very_high_risk'
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 6 — ACS has aspirin as line 1 treatment
+MATCH (acs:Concept {sctid:'394659003'})-[r:TREATED_BY]->(d:Drug {sctid:'387458008'})
+WHERE r.line = 1
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 7 — ACS has ticagrelor as line 1 treatment
+MATCH (acs:Concept {sctid:'394659003'})-[r:TREATED_BY]->(d:Drug {sctid:'698805004'})
+WHERE r.line = 1
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 8 — ACS has prasugrel as line 1 treatment with PCI condition
+MATCH (acs:Concept {sctid:'394659003'})-[r:TREATED_BY]->(d:Drug {sctid:'443129001'})
+WHERE r.line = 1 AND r.condition = 'PCI_planned_AND_P2Y12_naive'
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 9 — Clopidogrel is line 2 fallback
+MATCH (acs:Concept {sctid:'394659003'})-[r:TREATED_BY]->(d:Drug {sctid:'386952008'})
+WHERE r.line = 2
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 10 — Prasugrel absolutely contraindicated in prior stroke
+MATCH (d:Drug {sctid:'443129001'})-[r:CONTRAINDICATED_IN]->(c:Concept {sctid:'230690007'})
+WHERE r.severity = 'absolute' AND r.evidence_class = 'III'
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 11 — Prasugrel absolutely contraindicated in TIA
+MATCH (d:Drug {sctid:'443129001'})-[r:CONTRAINDICATED_IN]->(c:Concept {sctid:'266257000'})
+WHERE r.severity = 'absolute' AND r.evidence_class = 'III'
+RETURN count(r) > 0 AS passes;
+// Output: true
+
+// Test 12 — Troponin algorithm has exactly 3 outcomes
+MATCH (t:Concept {sctid:'105000003'})-[:ALGORITHM_RESULT]->(d:DiagnosticConclusion)
+RETURN count(d) AS total;
+// Output: 3
+
+// Test 13 — Rule-in conclusion confirms NSTEMI
+MATCH (t:Concept {sctid:'105000003'})
+  -[:ALGORITHM_RESULT]->(d:DiagnosticConclusion)
+  -[:CONFIRMS]->(n:Concept {sctid:'401314000'})
+RETURN count(n) > 0 AS passes;
+// Output: true
+
+// Test 14 — Observe pathway is not a dead end
+MATCH (observe:DiagnosticConclusion {sctid:'LOCAL_NSTEMI_OBSERVE_01'})
+  -[:REQUIRES_EXAM]->(t:Concept {sctid:'105000003'})
+RETURN count(t) > 0 AS passes;
+// Output: true
+
+// Test 15 — NSTEMI has explicit IS_A link to ACS
+MATCH (nstemi:Concept {sctid:'401314000'})-[:IS_A]->(acs:Concept {sctid:'394659003'})
+RETURN count(acs) > 0 AS passes;
+// Output: true
+
+// Test 16 — FULL END-TO-END NSTEMI REASONING CHAIN
+MATCH path = (chest:Concept {sctid:'29857009'})
+  -[:HAS_DIFFERENTIAL]->(acs:Concept {sctid:'394659003'})
+  -[:REQUIRES_EXAM]->(troponin:Concept {sctid:'105000003'})
+  -[:ALGORITHM_RESULT {outcome:'rule_in'}]->(conclusion:DiagnosticConclusion)
+  -[:CONFIRMS]->(nstemi:Concept {sctid:'401314000'})
+  -[:REQUIRES_EXAM {urgency:'within_24h'}]->(angio:Concept {sctid:'33367005'})
+WITH nodes(path) AS chain
+UNWIND chain AS n
+OPTIONAL MATCH (n)-[:HAS_TERM]->(t:Term)
+WHERE t.termType = 'FSN'
+WITH n, t
+WITH n, collect(t.term)[0] AS term_name
+WITH collect(coalesce(n.fsn, term_name)) AS node_names
+RETURN node_names AS reasoning_chain, size(node_names) AS total_nodes;
+// Output: 1 row, 6 nodes in correct order
