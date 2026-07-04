@@ -2,9 +2,9 @@
 
 # Cardiology Knowledge Graph — SNOMED CT Extraction & Cleaning Pipeline
 
-Part of the **AIMIG** (Assisted Intelligence in Medicine using Interactive Graphs) project — PFE (Final Year Project), Université Mohammed V - Rabat, Faculté de Médecine et de Pharmacie.
+Part of the **AIMIG** (Assisted Intelligence in Medicine using Interactive Graphs) project — PFE (Final Year Project), University Mohammed V - RABAT, Faculty of Medicine and Pharmacy.
 
-This repository contains the Google Colab notebook used to extract a cardiology-scoped subset of SNOMED CT and clean it into CSV files ready for import into Neo4j. It is the data engineering layer behind a cardiology clinical decision support knowledge graph.
+This repository contains a Google Colab notebook used to extract a cardiology-scoped subset of SNOMED CT, clean it into CSV files ready for import into Neo4j, and a Cypher file for querying the resulting graph. It serves as the data engineering backbone for a cardiology clinical decision support knowledge graph.
 
 ## What this notebook does
 
@@ -64,6 +64,4 @@ The notebook produces four CSV files, ready for `LOAD CSV` import into Neo4j:
 
 This extraction pipeline produces the **Phase 1 (ontological)** layer of the cardiology knowledge graph described in the accompanying thesis. A second phase enriches this graph with clinical reasoning relationships drawn from ESC (European Society of Cardiology) guideline content; that enrichment is applied directly in Neo4j and is not part of this notebook.
 
-## License
 
-No license has been specified for this repository yet. SNOMED CT itself remains subject to its own licensing terms (UMLS Metathesaurus / SNOMED International) and is not redistributed here.
