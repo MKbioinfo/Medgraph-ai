@@ -1,4 +1,4 @@
-# pfe-projet-2026
+# Medgraph-ai
 
 # Cardiology Knowledge Graph — SNOMED CT Extraction & Cleaning Pipeline
 
